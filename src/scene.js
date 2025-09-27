@@ -20,7 +20,7 @@ export function initScene() {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x141517);
-  scene.fog = new THREE.Fog(0x141517, 85, 170);
+  scene.fog = new THREE.Fog(0x141517, 120, 900);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.12).texture;
@@ -63,42 +63,86 @@ export function initScene() {
   const plateLight = new THREE.PointLight(0xffffff, 0.75, 120);
   plateLight.position.set(0, 3.0, -60.5);
   scene.add(plateLight);
-  // ======== FIELD GEOMETRY ========
-  // Textures
-  const tl = new THREE.TextureLoader();
-  const grassColor = tl.load('./textures/grass/color.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.repeat.set(48,48); });
-  const grassNormal = tl.load('./textures/grass/normal.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(48,48); });
-  const dirtColor  = tl.load('./textures/dirt/color.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.repeat.set(12,12); });
-  const dirtNormal = tl.load('./textures/dirt/normal.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(12,12); });
+  // Stadium lights (4 tall poles with wide spots)
+  const polePositions = [
+    new THREE.Vector3(140, 0, -20),
+    new THREE.Vector3(-140, 0, -20),
+    new THREE.Vector3(160, 0, 140),
+    new THREE.Vector3(-160, 0, 140)
+  ];
+  polePositions.forEach(p => {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.6,35,16), new THREE.MeshStandardMaterial({color:0x888888, metalness:0.6, roughness:0.4}));
+    pole.position.set(p.x, 17.5, p.z);
+    pole.castShadow = false; pole.receiveShadow = false;
+    scene.add(pole);
 
-  // Expand ground to hold the whole field
+    const spot = new THREE.SpotLight(0xffffff, 2.0, 1200, Math.PI/3.2, 0.35, 1.0);
+    spot.position.set(p.x, 34, p.z);
+    spot.target.position.set(0, 0, -20);
+    scene.add(spot.target);
+    spot.castShadow = true;
+    spot.shadow.mapSize.set(2048,2048);
+    spot.shadow.bias = -0.0002;
+    scene.add(spot);
+  });
+
+  // Prevent context menu when panning with right click
+  (renderer.domElement || canvas).addEventListener('contextmenu', e => e.preventDefault());
+
+  
+  // ======== FIELD GEOMETRY (corrected) ========
+  const tl = new THREE.TextureLoader();
+  const grassColor = tl.load('./textures/grass/color.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.repeat.set(24,24); });
+  const grassNormal = tl.load('./textures/grass/normal.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(24,24); });
+  const dirtColor  = tl.load('./textures/dirt/color.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.repeat.set(8,8); });
+  const dirtNormal = tl.load('./textures/dirt/normal.jpg', t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(8,8); });
+
+  // Big grass field
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(900, 900, 1, 1),
-    new THREE.MeshStandardMaterial({
-      map: grassColor,
-      normalMap: grassNormal,
-      roughness: 0.88,
-      metalness: 0.0
-    })
+    new THREE.PlaneGeometry(600, 600, 1, 1),
+    new THREE.MeshStandardMaterial({ map: grassColor, normalMap: grassNormal, roughness: 0.88, metalness: 0.0 })
   );
-  ground.rotation.x = -Math.PI / 2;
+  ground.rotation.x = -Math.PI/2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Infield dirt (square rotated 45°, side ~ 127.3ft). We'll approximate in your units.
-  const infield = new THREE.Mesh(
-    new THREE.CircleGeometry(95, 6), // hex approximates rounded infield cutout
-    new THREE.MeshStandardMaterial({
-      map: dirtColor, normalMap: dirtNormal, roughness: 0.92, metalness: 0.0
-    })
+  // Infield diamond (127.3 ft across corners)
+  const DIAMOND = 127.3;
+  const infieldDiamond = new THREE.Mesh(
+    new THREE.PlaneGeometry(DIAMOND, DIAMOND, 1, 1),
+    new THREE.MeshStandardMaterial({ map: dirtColor, normalMap: dirtNormal, roughness: 0.92, metalness: 0.0 })
   );
-  infield.rotation.x = -Math.PI/2;
-  infield.position.set(0, 0.005, -60.5 + 45); // center between home and second a bit forward
-  infield.receiveShadow = true;
-  scene.add(infield);
+  infieldDiamond.rotation.x = -Math.PI/2;
+  infieldDiamond.rotation.z = Math.PI/4;
+  infieldDiamond.position.set(0, 0.006, -60.5 + 45);
+  infieldDiamond.receiveShadow = true;
+  scene.add(infieldDiamond);
 
-  // Base paths rectangle (home-1st-2nd-3rd). Use thin planes for clarity.
-  function addChalkLine(x1,z1,x2,z2, width=0.8){
+  // Base paths
+  function addPath(x1,z1,x2,z2,width=6){
+    const dx=x2-x1, dz=z2-z1;
+    const len=Math.hypot(dx,dz);
+    const geo=new THREE.PlaneGeometry(width, len);
+    const mat=new THREE.MeshStandardMaterial({ map: dirtColor, normalMap: dirtNormal, roughness:0.92, metalness:0.0 });
+    const m=new THREE.Mesh(geo,mat);
+    m.rotation.x = -Math.PI/2;
+    const ang = Math.atan2(dx, dz);
+    m.rotation.z = ang;
+    m.position.set((x1+x2)/2, 0.007, (z1+z2)/2);
+    m.receiveShadow=true;
+    scene.add(m);
+  }
+  const HOME = new THREE.Vector3(0,0,-60.5);
+  const B1 = new THREE.Vector3(90,0,-60.5);
+  const B2 = new THREE.Vector3(0,0,29.5);
+  const B3 = new THREE.Vector3(-90,0,-60.5);
+  addPath(HOME.x, HOME.z, B1.x, B1.z);
+  addPath(B1.x, B1.z, B2.x, B2.z);
+  addPath(B2.x, B2.z, B3.x, B3.z);
+  addPath(B3.x, B3.z, HOME.x, HOME.z);
+
+  // Foul lines
+  function addChalkLine(x1,z1,x2,z2,width=0.8){
     const dx = x2-x1, dz = z2-z1;
     const len = Math.sqrt(dx*dx+dz*dz);
     const geo = new THREE.PlaneGeometry(width, len);
@@ -111,43 +155,61 @@ export function initScene() {
     m.receiveShadow = true;
     scene.add(m);
   }
-
-  // Foul lines from home to wall
-  const HOME = new THREE.Vector3(0,0,-60.5);
-  addChalkLine(HOME.x, HOME.z, HOME.x+450, HOME.z);      // 1B line (positive X)
-  addChalkLine(HOME.x, HOME.z, HOME.x-450, HOME.z);      // 3B line (negative X)
-
-  // Batter's boxes (simple decals)
-  function addBox(x,z,w=3.5,h=5){
-    const box = new THREE.Mesh(
-      new THREE.PlaneGeometry(w,h),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0.0 })
-    );
-    box.rotation.x = -Math.PI/2;
-    box.position.set(x, 0.011, z);
-    scene.add(box);
-  }
-  addBox(3.5, -60.5 + 3.5); // RH box
-  addBox(-3.5, -60.5 + 3.5); // LH box
+  addChalkLine(HOME.x, HOME.z, HOME.x+280, HOME.z);
+  addChalkLine(HOME.x, HOME.z, HOME.x-280, HOME.z);
 
   // Bases
   const baseTex = tl.load('./textures/misc/base_color.jpg', t => { t.colorSpace = THREE.SRGBColorSpace; });
   function addBase(x,z, size=1.5){
-    const m = new THREE.Mesh(
-      new THREE.BoxGeometry(size, 0.12, size),
-      new THREE.MeshStandardMaterial({ map: baseTex, roughness: 0.5, metalness: 0.0 })
-    );
+    const m = new THREE.Mesh(new THREE.BoxGeometry(size, 0.12, size), new THREE.MeshStandardMaterial({ map: baseTex, roughness: 0.55, metalness: 0.0 }));
     m.position.set(x, 0.06, z);
     m.castShadow = true; m.receiveShadow = true;
     scene.add(m);
   }
-  addBase(90, -60.5);      // 1B
-  addBase(0,  29.5);       // 2B
-  addBase(-90,-60.5);      // 3B
+  addBase(B1.x, B1.z);
+  addBase(B2.x, B2.z);
+  addBase(B3.x, B3.z);
 
-  // Home plate (replaces previous plate below)
+  // Home plate
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.85,0); shape.lineTo(0.85,0); shape.lineTo(0.85,0.5);
+  shape.lineTo(0,1.0);   shape.lineTo(-0.85,0.5); shape.lineTo(-0.85,0);
+  const plate = new THREE.Mesh(new THREE.ShapeGeometry(shape),
+    new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.6, clearcoat: 0.2 }));
+  plate.rotation.x = -Math.PI/2;
+  plate.position.set(HOME.x, 0.011, HOME.z);
+  plate.receiveShadow = true;
+  scene.add(plate);
 
-  // Strike zone
+  // Batter's boxes
+  function addBox(x,z,w=3.5,h=5){
+    const box = new THREE.Mesh(new THREE.PlaneGeometry(w,h), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, metalness: 0.0 }));
+    box.rotation.x = -Math.PI/2;
+    box.position.set(x, 0.011, z);
+    scene.add(box);
+  }
+  addBox(3.5, HOME.z + 3.5);
+  addBox(-3.5, HOME.z + 3.5);
+
+  // Outfield wall
+  const wallGroup = new THREE.Group();
+  const fenceMat = new THREE.MeshStandardMaterial({ color: 0x1b3b5a, roughness: 0.5, metalness: 0.1 });
+  function addFence(x1,z1,x2,z2,height=12,thick=0.6){
+    const dx=x2-x1, dz=z2-z1;
+    const len = Math.sqrt(dx*dx+dz*dz);
+    const geo = new THREE.BoxGeometry(thick, height, len);
+    const m = new THREE.Mesh(geo, fenceMat);
+    m.position.set((x1+x2)/2, height/2, (z1+z2)/2);
+    const ang = Math.atan2(dx, dz);
+    m.rotation.y = ang;
+    m.castShadow = true; m.receiveShadow = true;
+    wallGroup.add(m);
+  }
+  addFence(-200, 260, 200, 260, 12);
+  addFence(200, 260, 280, 100, 12);
+  addFence(-200, 260, -280, 100, 12);
+  scene.add(wallGroup);
+// Strike zone
   const zone = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.PlaneGeometry(1.42, 2.0)),
     new THREE.LineBasicMaterial({ color: 0xf2f2f2, transparent:true, opacity:0.9 })
